@@ -1,0 +1,368 @@
+# Engram Ontology v1.0.0
+# Self-evolving knowledge graph definition
+# Changes are versioned; evolution proposals require approval
+
+version: "1.0.0"
+created: "2026-04-04"
+updated: "2026-04-04"
+
+# ============================================================
+# DOMAINS (MECE partitions of all knowledge)
+# ============================================================
+domains:
+  work:
+    description: "Professional context: employer, projects, colleagues, meetings, decisions"
+    schema: "ob_work"
+    default_sensitivity: "internal"
+
+  personal:
+    description: "Family, relationships, private finances"
+    schema: "ob_personal"
+    default_sensitivity: "confidential"
+
+  life:
+    description: "Health, goals, beliefs, wellbeing, personal development"
+    schema: "ob_life"
+    default_sensitivity: "confidential"
+
+  learning:
+    description: "Skills, research, extracted wisdom, patterns, reference material"
+    schema: "ob_learning"
+    default_sensitivity: "public"
+
+# ============================================================
+# TIME HORIZONS (situational awareness levels)
+# ============================================================
+horizons:
+  daily:
+    description: "What matters today: meetings, emails, tasks, observations"
+    window_days: 1
+    entity_defaults:
+      - meeting
+      - daily_briefing
+      - email
+      - task
+      - observation
+
+  weekly:
+    description: "What matters this week: decisions, colleague dynamics, new ideas"
+    window_days: 7
+    entity_defaults:
+      - colleague_note
+      - decision
+      - idea
+
+  monthly:
+    description: "What matters this month: projects, research, learning progress"
+    window_days: 30
+    entity_defaults:
+      - project
+      - research
+      - learning
+
+  quarterly:
+    description: "What matters this quarter: goals, health, beliefs, reference material"
+    window_days: 90
+    entity_defaults:
+      - goal
+      - belief
+      - health
+      - reference
+      - person_note
+      - family_event
+      - financial
+      - custody
+      - psychological
+
+# ============================================================
+# SENSITIVITY LEVELS (ascending restriction)
+# ============================================================
+sensitivity_levels:
+  public:
+    description: "Can be shared freely. Reference material, general knowledge."
+    cross_domain: true
+    synapse_eligible: true
+
+  internal:
+    description: "Work context. Not secret, but not for external sharing."
+    cross_domain: true
+    synapse_eligible: true
+
+  confidential:
+    description: "Private information. Only accessible within its own domain."
+    cross_domain: false
+    synapse_eligible: false
+
+  secret:
+    description: "Highly sensitive. Never surfaces outside explicit request."
+    cross_domain: false
+    synapse_eligible: false
+
+# ============================================================
+# ENTITY TYPES
+# ============================================================
+entity_types:
+  # Work entities
+  meeting:
+    domain_default: "work"
+    sensitivity: "internal"
+    default_horizon: "daily"
+    description: "Meeting notes, transcripts, action items"
+
+  project:
+    domain_default: "work"
+    sensitivity: "internal"
+    default_horizon: "monthly"
+    description: "Project context, decisions, status"
+
+  decision:
+    domain_default: "work"
+    sensitivity: "internal"
+    default_horizon: "weekly"
+    description: "Decisions made in professional context"
+
+  colleague_note:
+    domain_default: "work"
+    sensitivity: "internal"
+    default_horizon: "weekly"
+    description: "Observations about work colleagues"
+
+  # Personal entities
+  person_note:
+    domain_default: "personal"
+    sensitivity: "confidential"
+    default_horizon: "quarterly"
+    description: "Notes about personal relationships"
+
+  financial:
+    domain_default: "personal"
+    sensitivity: "secret"
+    default_horizon: "quarterly"
+    description: "Financial transactions, loans, debts, expenses"
+
+  custody:
+    domain_default: "personal"
+    sensitivity: "secret"
+    default_horizon: "quarterly"
+    description: "Custody arrangements, co-parenting agreements"
+
+  psychological:
+    domain_default: "personal"
+    sensitivity: "secret"
+    default_horizon: "quarterly"
+    description: "Psychological profiles, personality analysis, diagnoses"
+
+  family_event:
+    domain_default: "personal"
+    sensitivity: "confidential"
+    default_horizon: "quarterly"
+    description: "Family events, milestones, commemorations"
+
+  # Life entities
+  health:
+    domain_default: "life"
+    sensitivity: "confidential"
+    default_horizon: "quarterly"
+    description: "Health observations, medical information"
+
+  goal:
+    domain_default: "life"
+    sensitivity: "confidential"
+    default_horizon: "quarterly"
+    description: "Personal and professional goals"
+
+  belief:
+    domain_default: "life"
+    sensitivity: "confidential"
+    default_horizon: "quarterly"
+    description: "Values, beliefs, worldview"
+
+  daily_briefing:
+    domain_default: "life"
+    sensitivity: "internal"
+    default_horizon: "daily"
+    description: "Daily status, mood, energy"
+
+  # Learning entities
+  learning:
+    domain_default: "learning"
+    sensitivity: "public"
+    default_horizon: "monthly"
+    description: "Skills learned, courses, extracted wisdom"
+
+  reference:
+    domain_default: "learning"
+    sensitivity: "public"
+    default_horizon: "quarterly"
+    description: "Reference material, documentation, how-tos"
+
+  research:
+    domain_default: "learning"
+    sensitivity: "public"
+    default_horizon: "monthly"
+    description: "Research findings, analysis results"
+
+  idea:
+    domain_default: "learning"
+    sensitivity: "internal"
+    default_horizon: "weekly"
+    description: "Ideas, hypotheses, creative thoughts"
+
+  observation:
+    domain_default: "work"
+    sensitivity: "internal"
+    default_horizon: "daily"
+    description: "General observations (domain inferred from content)"
+
+  task:
+    domain_default: "work"
+    sensitivity: "internal"
+    default_horizon: "daily"
+    description: "Tasks and action items"
+
+  email:
+    domain_default: "work"
+    sensitivity: "internal"
+    default_horizon: "daily"
+    description: "Email summaries and extracts"
+
+# ============================================================
+# RELATIONSHIPS
+# ============================================================
+relationships:
+  works_on:
+    from: ["person_note", "colleague_note"]
+    to: ["project"]
+    description: "Person works on project"
+
+  parent_of:
+    from: ["person_note"]
+    to: ["person_note"]
+    description: "Parent-child relationship"
+
+  impacts:
+    from: ["decision"]
+    to: ["project", "person_note", "goal"]
+    description: "Decision impacts entity"
+
+  related_to:
+    from: ["*"]
+    to: ["*"]
+    description: "General semantic relationship"
+
+  derived_from:
+    from: ["learning", "research", "idea"]
+    to: ["meeting", "reference", "observation"]
+    description: "Knowledge derived from source"
+
+  tracks:
+    from: ["financial"]
+    to: ["person_note"]
+    description: "Financial record tracks a person"
+
+# ============================================================
+# INFERENCE RULES (for auto-classification)
+# ============================================================
+inference_rules:
+  # People-based routing
+  - name: "family_member_detection"
+    description: "Mentions of known family members route to personal domain"
+    condition:
+      people_match_any:
+        # Add your family members here
+        - "Jane Doe"
+        - "John Doe Jr"
+        - "Alice Doe"
+    action:
+      domain: "personal"
+      sensitivity: "confidential"
+      confidence_boost: 0.9
+
+  - name: "colleague_detection"
+    description: "Mentions of known colleagues route to work domain"
+    condition:
+      people_source: "ob_work_people"  # populated from your people directory
+    action:
+      domain: "work"
+      sensitivity: "internal"
+      confidence_boost: 0.7
+
+  # Topic-based routing
+  - name: "financial_personal"
+    description: "Financial topics mentioning family route to personal"
+    condition:
+      topics_match_any: ["loan", "custody", "child support", "co-parenting expenses"]
+    action:
+      domain: "personal"
+      sensitivity: "secret"
+      confidence_boost: 0.85
+
+  - name: "health_routing"
+    description: "Health topics route to life domain"
+    condition:
+      topics_match_any: ["health", "medical", "diagnosis", "symptoms", "wellbeing", "therapy"]
+    action:
+      domain: "life"
+      sensitivity: "confidential"
+      confidence_boost: 0.8
+
+  - name: "meeting_routing"
+    description: "Meeting notes route to work"
+    condition:
+      type_match: "meeting"
+    action:
+      domain: "work"
+      sensitivity: "internal"
+      confidence_boost: 0.95
+
+  - name: "learning_routing"
+    description: "Extracted wisdom and research route to learning"
+    condition:
+      source_match_any: ["extract-wisdom", "research", "youtube"]
+      type_match_any: ["learning", "youtube-video", "youtube-video-summary", "research-summary"]
+    action:
+      domain: "learning"
+      sensitivity: "public"
+      confidence_boost: 0.9
+
+  # Content-based routing
+  - name: "psychological_content"
+    description: "Psychological analysis content routes to personal"
+    condition:
+      content_match_any: ["personality profile", "psychological", "attachment style", "NPD", "BPD", "narcissistic", "Big Five"]
+    action:
+      domain: "personal"
+      sensitivity: "secret"
+      confidence_boost: 0.95
+
+# ============================================================
+# CROSS-DOMAIN SYNAPSE RULES
+# ============================================================
+synapse_rules:
+  # What can be seen from work domain
+  work_can_see:
+    - domain: "learning"
+      entity_types: ["learning", "reference", "research", "idea"]
+      sensitivity_max: "internal"
+
+  # What can be seen from personal domain
+  personal_can_see:
+    - domain: "life"
+      entity_types: ["health", "goal"]
+      sensitivity_max: "confidential"
+
+  # What can be seen from life domain
+  life_can_see:
+    - domain: "learning"
+      entity_types: ["learning", "reference"]
+      sensitivity_max: "public"
+
+  # What can be seen from learning domain
+  learning_can_see: []  # learning is self-contained
+
+  # Types that NEVER cross domains regardless of rules
+  never_cross:
+    - "financial"
+    - "custody"
+    - "psychological"
+    - "person_note"  # personal person_notes never leak; work colleague_notes stay in work
