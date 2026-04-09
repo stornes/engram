@@ -17,10 +17,10 @@ import { createClient } from "@supabase/supabase-js";
 
 // --- Config ---
 
-const SCRIPT_DIR = join(process.env.HOME!, ".claude/engram");
+const SCRIPT_DIR = join(process.env.HOME!, "clawd/engram");
 const STATE_DIR = join(SCRIPT_DIR, "state");
 const STATE_FILE = join(STATE_DIR, "calendar-sync-state.json");
-const EVENTS_SWIFT = join(process.env.HOME!, ".claude/skills/Calendar/Tools/GetEvents.swift");
+const EVENTS_SWIFT = join(SCRIPT_DIR, "get_events.swift");
 const BATCH_LIMIT = 30; // max events per run
 
 // Load env

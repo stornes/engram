@@ -25,12 +25,12 @@ import { createClient } from "@supabase/supabase-js";
 
 // --- Config ---
 
-const PAI_ROOT = join(process.env.HOME!, ".claude");
+const PAI_ROOT = join(process.env.HOME!, "clawd");
 const SCRIPT_DIR = join(PAI_ROOT, "engram");
 const STATE_DIR = join(SCRIPT_DIR, "state");
 const STATE_FILE = join(STATE_DIR, "email-sync-state.json");
 
-const ACCOUNT = "Exchange";
+const ACCOUNT = "HRG";
 const LOOKBACK_DAYS = 7;
 const BATCH_LIMIT = 30;
 const MAX_BODY_CHARS = 2000;
@@ -197,52 +197,38 @@ function makeMessageId(subject: string, date: string, sender: string): string {
  * Returns tab-delimited metadata (fast batch operation).
  */
 function fetchMailboxMetadata(mailbox: string, days: number): EmailMeta[] {
-  // Use batch reference (messages 1 thru N) — much faster than iterating by index
-  // on large mailboxes. 50 messages is the sweet spot for ~45s runtime.
-  // Includes recipient extraction in the same batch to avoid per-message calls.
   const scanCount = 50;
   const script = `
-tell application "Mail"
-  set acct to account "${escapeAS(ACCOUNT)}"
-  set mb to mailbox "${escapeAS(mailbox)}" of acct
-  set msgCount to count of messages of mb
-  if msgCount < 1 then return ""
-  if msgCount > ${scanCount} then set msgCount to ${scanCount}
-  set msgs to messages 1 thru msgCount of mb
-  set output to ""
-  set i to 0
-  repeat with msg in msgs
-    set i to i + 1
-    set subj to subject of msg
-    set sndr to sender of msg
-    set dt to date received of msg
-    set recipStr to ""
-    try
-      set recips to to recipients of msg
-      repeat with r in recips
-        set recipStr to recipStr & (address of r) & ","
-      end repeat
-    end try
-    set ccStr to ""
-    try
-      set ccs to cc recipients of msg
-      repeat with c in ccs
-        set ccStr to ccStr & (address of c) & ","
-      end repeat
-    end try
-    set output to output & i & "\\t" & subj & "\\t" & sndr & "\\t" & recipStr & "\\t" & ccStr & "\\t" & dt & linefeed
-  end repeat
-  return output
-end tell`;
+    const Mail = Application("Mail");
+    if (!Mail.running()) return "";
+    const acct = Mail.accounts.byName("${ACCOUNT}");
+    if (!acct.exists()) return "";
+    const mb = acct.mailboxes.byName("${mailbox}");
+    if (!mb.exists()) return "";
+    const msgs = mb.messages;
+    const count = Math.min(msgs.length, ${scanCount});
+    let output = "";
+    for (let i = 0; i < count; i++) {
+      let m = msgs[i];
+      let subj = m.subject() || "";
+      let sndr = m.sender() || "";
+      let date = m.dateReceived() ? m.dateReceived().toString() : "";
+      let recips = "";
+      try { m.toRecipients().forEach(r => recips += (r.address() || "") + ","); } catch(e) {}
+      let ccStr = "";
+      try { m.ccRecipients().forEach(c => ccStr += (c.address() || "") + ","); } catch(e) {}
+      output += (i+1) + "\\t" + subj + "\\t" + sndr + "\\t" + recips + "\\t" + ccStr + "\\t" + date + "\\n";
+    }
+    output;
+  `;
 
   try {
-    const result = execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
+    const result = execSync(`osascript -l JavaScript -e '${script.replace(/'/g, "'\\''")}'`, {
       encoding: "utf-8",
       timeout: 60000,
       maxBuffer: 5 * 1024 * 1024,
     });
 
-    // Parse all results, then filter by date in TypeScript
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
 
@@ -283,44 +269,35 @@ end tell`;
  */
 function fetchMailboxMetadataChunk(mailbox: string, startIndex: number, endIndex: number): EmailMeta[] {
   const script = `
-tell application "Mail"
-  set acct to account "${escapeAS(ACCOUNT)}"
-  set mb to mailbox "${escapeAS(mailbox)}" of acct
-  set msgCount to count of messages of mb
-  if msgCount < ${startIndex} then return ""
-  set endIdx to ${endIndex}
-  if msgCount < endIdx then set endIdx to msgCount
-  set msgs to messages ${startIndex} thru endIdx of mb
-  set output to ""
-  set i to ${startIndex - 1}
-  repeat with msg in msgs
-    set i to i + 1
-    set subj to subject of msg
-    set sndr to sender of msg
-    set dt to date received of msg
-    set recipStr to ""
-    try
-      set recips to to recipients of msg
-      repeat with r in recips
-        set recipStr to recipStr & (address of r) & ","
-      end repeat
-    end try
-    set ccStr to ""
-    try
-      set ccs to cc recipients of msg
-      repeat with c in ccs
-        set ccStr to ccStr & (address of c) & ","
-      end repeat
-    end try
-    set output to output & i & "\\t" & subj & "\\t" & sndr & "\\t" & recipStr & "\\t" & ccStr & "\\t" & dt & linefeed
-  end repeat
-  return output
-end tell`;
+    const Mail = Application("Mail");
+    if (!Mail.running()) return "";
+    const acct = Mail.accounts.byName("${ACCOUNT}");
+    if (!acct.exists()) return "";
+    const mb = acct.mailboxes.byName("${mailbox}");
+    if (!mb.exists()) return "";
+    const msgs = mb.messages;
+    if (msgs.length < ${startIndex}) return "";
+    const endIdx = Math.min(msgs.length, ${endIndex});
+    let output = "";
+    // AppleScript is 1-indexed, JXA is 0-indexed. startIndex is 1-indexed.
+    for (let i = ${startIndex} - 1; i < endIdx; i++) {
+      let m = msgs[i];
+      let subj = m.subject() || "";
+      let sndr = m.sender() || "";
+      let date = m.dateReceived() ? m.dateReceived().toString() : "";
+      let recips = "";
+      try { m.toRecipients().forEach(r => recips += (r.address() || "") + ","); } catch(e) {}
+      let ccStr = "";
+      try { m.ccRecipients().forEach(c => ccStr += (c.address() || "") + ","); } catch(e) {}
+      output += (i+1) + "\\t" + subj + "\\t" + sndr + "\\t" + recips + "\\t" + ccStr + "\\t" + date + "\\n";
+    }
+    output;
+  `;
 
   try {
-    const result = execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
+    const result = execSync(`osascript -l JavaScript -e '${script.replace(/'/g, "'\\''")}'`, {
       encoding: "utf-8",
-      timeout: 120000, // 2 min per chunk
+      timeout: 120000,
       maxBuffer: 5 * 1024 * 1024,
     });
 
@@ -417,13 +394,17 @@ function fetchMailboxMetadataRange(mailbox: string, startIndex: number, endIndex
  */
 function getMailboxCount(mailbox: string): number {
   const script = `
-tell application "Mail"
-  set acct to account "${escapeAS(ACCOUNT)}"
-  set mb to mailbox "${escapeAS(mailbox)}" of acct
-  return count of messages of mb
-end tell`;
+    const Mail = Application("Mail");
+    if (!Mail.running()) return "0";
+    const acct = Mail.accounts.byName("${ACCOUNT}");
+    if (!acct.exists()) return "0";
+    const mb = acct.mailboxes.byName("${mailbox}");
+    if (!mb.exists()) return "0";
+    mb.messages.length.toString();
+  `;
+
   try {
-    const result = execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
+    const result = execSync(`osascript -l JavaScript -e '${script.replace(/'/g, "'\\''")}'`, {
       encoding: "utf-8",
       timeout: 30000,
     });
@@ -438,22 +419,24 @@ end tell`;
  * Uses item N of batch reference for consistent behavior with metadata scan.
  */
 function fetchEmailBody(mailbox: string, index: number): string {
-  // Use messages reference to access by position
   const script = `
-tell application "Mail"
-  set acct to account "${escapeAS(ACCOUNT)}"
-  set mb to mailbox "${escapeAS(mailbox)}" of acct
-  set msgs to messages 1 thru ${index} of mb
-  set msg to item ${index} of msgs
-  set bodyText to content of msg
-  if (length of bodyText) > ${MAX_BODY_CHARS} then
-    set bodyText to text 1 thru ${MAX_BODY_CHARS} of bodyText
-  end if
-  return bodyText
-end tell`;
+    const Mail = Application("Mail");
+    if (!Mail.running()) return "";
+    const acct = Mail.accounts.byName("${ACCOUNT}");
+    if (!acct.exists()) return "";
+    const mb = acct.mailboxes.byName("${mailbox}");
+    if (!mb.exists()) return "";
+    const msgs = mb.messages;
+    if (msgs.length < ${index}) return "";
+    let bodyText = msgs[${index} - 1].content() || "";
+    if (bodyText.length > ${MAX_BODY_CHARS}) {
+      bodyText = bodyText.substring(0, ${MAX_BODY_CHARS});
+    }
+    bodyText;
+  `;
 
   try {
-    const result = execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
+    const result = execSync(`osascript -l JavaScript -e '${script.replace(/'/g, "'\\''")}'`, {
       encoding: "utf-8",
       timeout: 30000,
       maxBuffer: 1024 * 1024,
