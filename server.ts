@@ -7,7 +7,9 @@
  * Domains: work, personal, life, learning
  * Each domain maps to a Supabase schema: ob_work, ob_personal, ob_life, ob_learning
  *
- * Tools: search_thoughts, list_thoughts, capture_thought, project_status, thought_stats
+ * Tools: search_thoughts, list_thoughts, capture_thought, project_status, thought_stats,
+ *         add_relationship, query_relationships, invalidate_relationship,
+ *         discover_connections, wake_up
  *
  * Environment:
  *   SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENAI_API_KEY, VOYAGE_API_KEY
@@ -346,6 +348,36 @@ async function insertProposals(proposals: OntologyProposal[]): Promise<void> {
   }
 }
 
+// --- Importance Scoring ---
+const TYPE_WEIGHTS: Record<string, number> = {
+  project: 0.9, project_risk: 0.8, project_decision: 0.85, project_milestone: 0.8,
+  project_dependency: 0.7, project_cost: 0.7,
+  decision: 0.8, goal: 0.85, belief: 0.8,
+  meeting: 0.5, colleague_note: 0.4, person_note: 0.6,
+  health: 0.7, financial: 0.7, custody: 0.7,
+  daily_briefing: 0.2, observation: 0.3, task: 0.4,
+  email: 0.2, idea: 0.5, learning: 0.5, research: 0.6, reference: 0.5,
+};
+
+const HORIZON_WEIGHTS: Record<string, number> = {
+  quarterly: 0.9, monthly: 0.6, weekly: 0.4, daily: 0.2,
+};
+
+function computeImportance(metadata: Record<string, unknown>, createdAt: string): number {
+  const type = (metadata.type as string) || "observation";
+  const horizon = (metadata.horizon as string) || "daily";
+  const typeW = TYPE_WEIGHTS[type] ?? 0.3;
+  const horizonW = HORIZON_WEIGHTS[horizon] ?? 0.3;
+
+  // Recency decay: 1.0 for today, 0.5 at 30 days, 0.2 at 90 days
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  const ageDays = ageMs / 86400000;
+  const recency = Math.max(0.1, 1.0 / (1.0 + ageDays / 30));
+
+  // Weighted combination: type matters most, then horizon, then recency
+  return Math.round((typeW * 0.5 + horizonW * 0.3 + recency * 0.2) * 100) / 100;
+}
+
 // --- Server setup ---
 const server = new McpServer({
   name: "engram",
@@ -458,7 +490,7 @@ server.tool(
       let query = supabase
         .schema(schema as any)
         .from("thoughts")
-        .select("id, content, metadata, created_at")
+        .select("id, content, raw_source, metadata, created_at")
         .order("created_at", { ascending: false })
         .limit(limit ?? 20);
 
@@ -480,6 +512,7 @@ server.tool(
         allThoughts.push({
           id: t.id,
           content: (t.content as string).slice(0, 300),
+          ...(t.raw_source ? { raw_source: (t.raw_source as string).slice(0, 300) } : {}),
           metadata: t.metadata,
           domain: d,
           created_at: t.created_at,
@@ -548,6 +581,7 @@ server.tool(
         content,
         embedding,
         metadata: enrichedMetadata,
+        importance: computeImportance(enrichedMetadata, new Date().toISOString()),
       })
       .select("id, metadata")
       .single();
@@ -802,6 +836,271 @@ server.tool(
 
     return {
       content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }],
+    };
+  }
+);
+
+// --- add_relationship ---
+server.tool(
+  "add_relationship",
+  "Add a temporal relationship between two entities. Supports valid_from/valid_to for tracking how facts change over time.",
+  {
+    subject: z.string().describe("The source entity (e.g. person name, project slug)"),
+    subject_domain: z.enum(["work", "personal", "life", "learning"]).optional().describe("Domain of subject (default: work)"),
+    object: z.string().describe("The target entity"),
+    object_domain: z.enum(["work", "personal", "life", "learning"]).optional().describe("Domain of object (default: work)"),
+    predicate: z.string().describe("Relationship type (e.g. 'works_on', 'reports_to', 'owns', 'depends_on')"),
+    properties: z.record(z.unknown()).optional().describe("Additional properties as key-value pairs"),
+    valid_from: z.string().optional().describe("ISO timestamp when this became true (default: now)"),
+    source_thought_id: z.string().uuid().optional().describe("UUID of the thought this relationship was extracted from"),
+  },
+  async ({ subject, subject_domain, object, object_domain, predicate, properties, valid_from, source_thought_id }) => {
+    const { data, error } = await supabase
+      .from("ob_relationships")
+      .insert({
+        subject,
+        subject_domain: subject_domain || "work",
+        object,
+        object_domain: object_domain || "work",
+        predicate,
+        properties: properties || {},
+        valid_from: valid_from || new Date().toISOString(),
+        source_thought_id: source_thought_id || null,
+      })
+      .select("id")
+      .single();
+
+    if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ id: data.id, subject, predicate, object, message: "Relationship added" }, null, 2) }],
+    };
+  }
+);
+
+// --- query_relationships ---
+server.tool(
+  "query_relationships",
+  "Query the temporal knowledge graph. Find relationships involving an entity, optionally filtered by predicate and point-in-time.",
+  {
+    entity: z.string().describe("Entity name to query (matches subject or object)"),
+    predicate: z.string().optional().describe("Filter by relationship type"),
+    as_of: z.string().optional().describe("ISO timestamp: show relationships valid at this point in time (default: now)"),
+    include_expired: z.boolean().optional().describe("Include expired relationships (default: false)"),
+    limit: z.number().optional().describe("Max results (default 50)"),
+  },
+  async ({ entity, predicate, as_of, include_expired, limit }) => {
+    const asOfDate = as_of || new Date().toISOString();
+    const maxResults = limit ?? 50;
+
+    if (include_expired) {
+      // All relationships, current and expired
+      let query = supabase
+        .from("ob_relationships")
+        .select("*")
+        .or(`subject.eq.${entity},object.eq.${entity}`)
+        .order("valid_from", { ascending: false })
+        .limit(maxResults);
+
+      if (predicate) query = query.eq("predicate", predicate);
+
+      const { data, error } = await query;
+      if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
+
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ entity, include_expired: true, total: (data || []).length, relationships: data || [] }, null, 2) }],
+      };
+    }
+
+    const { data, error } = await supabase.rpc("query_relationships_at", {
+      target_entity: entity,
+      as_of: asOfDate,
+      rel_predicate: predicate || null,
+      max_results: maxResults,
+    });
+
+    if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
+
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ entity, as_of: asOfDate, total: (data || []).length, relationships: data || [] }, null, 2) }],
+    };
+  }
+);
+
+// --- invalidate_relationship ---
+server.tool(
+  "invalidate_relationship",
+  "Mark a relationship as no longer valid by setting its valid_to timestamp. Does not delete the record (preserves history).",
+  {
+    relationship_id: z.string().uuid().describe("UUID of the relationship to invalidate"),
+    valid_to: z.string().optional().describe("ISO timestamp when this stopped being true (default: now)"),
+  },
+  async ({ relationship_id, valid_to }) => {
+    const { data, error } = await supabase
+      .from("ob_relationships")
+      .update({ valid_to: valid_to || new Date().toISOString() })
+      .eq("id", relationship_id)
+      .select("id, subject, predicate, object, valid_to")
+      .single();
+
+    if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ...data, message: "Relationship invalidated" }, null, 2) }],
+    };
+  }
+);
+
+// --- discover_connections ---
+server.tool(
+  "discover_connections",
+  "Discover cross-domain connections: find thoughts in different domains that share people, topics, or project_ids. Respects never_cross constraints.",
+  {
+    entity: z.string().describe("Person name, topic, or project_id to trace across domains"),
+    connection_type: z.enum(["person", "topic", "project"]).describe("What type of connection to look for"),
+    limit_per_domain: z.number().optional().describe("Max results per domain (default 5)"),
+  },
+  async ({ entity, connection_type, limit_per_domain }) => {
+    const perDomain = limit_per_domain ?? 5;
+    const neverCross = ontology.synapse_rules?.never_cross || [];
+    const connections: Record<string, any[]> = {};
+
+    let metadataFilter: Record<string, unknown>;
+    switch (connection_type) {
+      case "person":
+        metadataFilter = { people: [entity] };
+        break;
+      case "topic":
+        metadataFilter = { topics: [entity] };
+        break;
+      case "project":
+        metadataFilter = { project_id: entity };
+        break;
+    }
+
+    // Query all 4 domains in parallel
+    const results = await Promise.all(
+      VALID_DOMAINS.map(async (d) => {
+        const schema = schemaFor(d);
+        const { data, error } = await supabase
+          .schema(schema as any)
+          .from("thoughts")
+          .select("id, content, metadata, created_at")
+          .contains("metadata", metadataFilter)
+          .order("created_at", { ascending: false })
+          .limit(perDomain);
+        return { domain: d, data, error };
+      })
+    );
+
+    for (const { domain: d, data, error } of results) {
+      if (error || !data?.length) continue;
+
+      const filtered = data.filter((t: any) => {
+        const type = t.metadata?.type || "";
+        return !neverCross.includes(type);
+      });
+
+      if (filtered.length > 0) {
+        connections[d] = filtered.map((t: any) => ({
+          id: t.id,
+          type: t.metadata?.type,
+          content: (t.content as string).slice(0, 200),
+          topics: t.metadata?.topics || [],
+          people: t.metadata?.people || [],
+          created_at: t.created_at,
+        }));
+      }
+    }
+
+    const domainCount = Object.keys(connections).length;
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({
+          entity,
+          connection_type,
+          domains_found: domainCount,
+          is_cross_domain: domainCount > 1,
+          connections,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+// --- wake_up ---
+server.tool(
+  "wake_up",
+  "Quick context injection for session start. Returns layered recall: L0 (identity/role, max 3), L1 (active projects, max 5), L2 (recent high-importance thoughts, max 10). Designed to fit within ~1500 tokens.",
+  {
+    domain: z.string().optional().describe(`Primary domain (default: ${DEFAULT_DOMAIN})`),
+  },
+  async ({ domain }) => {
+    const primaryDomain = (isValidDomain(domain || "") ? domain : DEFAULT_DOMAIN) as Domain;
+    const schema = schemaFor(primaryDomain);
+
+    // L0: Identity/role thoughts (goals, beliefs, daily briefings)
+    const l0Query = supabase
+      .schema("ob_life" as any)
+      .from("thoughts")
+      .select("id, content, metadata, importance, created_at")
+      .or("metadata->>type.eq.goal,metadata->>type.eq.belief,metadata->>type.eq.daily_briefing")
+      .order("importance", { ascending: false, nullsFirst: false })
+      .limit(3);
+
+    // L1: Active project definitions
+    const l1Query = supabase
+      .schema(schema as any)
+      .from("thoughts")
+      .select("id, content, metadata, importance, created_at")
+      .contains("metadata", { type: "project" })
+      .order("importance", { ascending: false, nullsFirst: false })
+      .limit(5);
+
+    // L2: Recent high-importance thoughts (last 7 days)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const l2Query = supabase
+      .schema(schema as any)
+      .from("thoughts")
+      .select("id, content, metadata, importance, created_at")
+      .gte("created_at", sevenDaysAgo)
+      .not("metadata->>type", "eq", "project") // don't duplicate L1
+      .order("importance", { ascending: false, nullsFirst: false })
+      .limit(10);
+
+    const [l0Result, l1Result, l2Result] = await Promise.all([l0Query, l1Query, l2Query]);
+
+    const formatLayer = (data: any[] | null, maxContentLen: number) =>
+      (data || []).map((t: any) => ({
+        id: t.id,
+        type: t.metadata?.type,
+        content: (t.content as string).slice(0, maxContentLen),
+        importance: t.importance,
+        created_at: t.created_at,
+      }));
+
+    const l0 = formatLayer(l0Result.data, 150);  // Short for identity
+    const l1 = formatLayer(l1Result.data, 200);  // Medium for projects
+    const l2 = formatLayer(l2Result.data, 100);  // Brief for recent context
+
+    // Estimate tokens (~4 chars per token)
+    const estimatedTokens = Math.round(
+      JSON.stringify({ l0, l1, l2 }).length / 4
+    );
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({
+          domain: primaryDomain,
+          estimated_tokens: estimatedTokens,
+          layers: {
+            L0_identity: { count: l0.length, thoughts: l0 },
+            L1_projects: { count: l1.length, thoughts: l1 },
+            L2_recent: { count: l2.length, thoughts: l2 },
+          },
+        }, null, 2),
+      }],
     };
   }
 );
