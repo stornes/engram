@@ -21,7 +21,7 @@ import { getEmbedding } from "./lib/embeddings.ts";
 const SCRIPT_DIR = join(process.env.HOME!, ".claude/engram");
 const STATE_DIR = join(SCRIPT_DIR, "state");
 const STATE_FILE = join(STATE_DIR, "calendar-sync-state.json");
-const EVENTS_SWIFT = process.env.EVENTS_SWIFT_PATH || join(SCRIPT_DIR, "tools", "GetEvents.swift");
+const EVENTS_SWIFT = process.env.EVENTS_SWIFT_PATH || join(SCRIPT_DIR, "tools", "get_events.swift");
 const BATCH_LIMIT = 30; // max events per run
 
 // Load env
