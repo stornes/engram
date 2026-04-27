@@ -16,6 +16,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { readdir, readFile, stat } from "fs/promises";
 import { join, relative, extname, basename } from "path";
+import { getEmbedding } from "./lib/embeddings.ts";
 
 const SUPABASE_URL =
   process.env.SUPABASE_URL || "";
@@ -97,26 +98,6 @@ function extractPeopleFromPath(relPath: string): string[] {
     return [name];
   }
   return [];
-}
-
-// --- Get embedding ---
-async function getEmbedding(text: string): Promise<number[]> {
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "text-embedding-3-small",
-      input: text.slice(0, 8000),
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Embedding API error: ${res.status} ${await res.text()}`);
-  }
-  const data = await res.json();
-  return data.data[0].embedding;
 }
 
 // --- Extract metadata via LLM ---
