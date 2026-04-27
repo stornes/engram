@@ -52,6 +52,14 @@ if (!SUPABASE_KEY || !OPENAI_KEY || !SLACK_TOKEN) {
   process.exit(1);
 }
 
+const VALID_DOMAINS = ["ob_work", "ob_personal", "ob_life", "ob_learning"] as const;
+type Domain = (typeof VALID_DOMAINS)[number];
+const DOMAIN: Domain = (process.env.ENGRAM_DOMAIN as Domain) || "ob_work";
+if (!VALID_DOMAINS.includes(DOMAIN)) {
+  console.error(`Invalid ENGRAM_DOMAIN '${DOMAIN}'. Must be one of: ${VALID_DOMAINS.join(", ")}`);
+  process.exit(1);
+}
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const CHANNELS = process.env.SLACK_CHANNELS
@@ -210,13 +218,13 @@ async function main() {
 
         // Upsert: delete previous version of this exact message
         await supabase
-          .schema("ob_work" as any)
+          .schema(DOMAIN as any)
           .from("thoughts")
           .delete()
           .eq("metadata->>slack_ts", msg.ts)
           .eq("metadata->>source", "slack-sync");
 
-        const { error } = await supabase.schema("ob_work" as any).from("thoughts").insert({
+        const { error } = await supabase.schema(DOMAIN as any).from("thoughts").insert({
           content,
           embedding,
           metadata: {

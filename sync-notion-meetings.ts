@@ -54,6 +54,14 @@ if (!SUPABASE_URL || !SUPABASE_KEY || !OPENAI_KEY) {
   process.exit(1);
 }
 
+const VALID_DOMAINS = ["ob_work", "ob_personal", "ob_life", "ob_learning"] as const;
+type Domain = (typeof VALID_DOMAINS)[number];
+const DOMAIN: Domain = (process.env.ENGRAM_DOMAIN as Domain) || "ob_work";
+if (!VALID_DOMAINS.includes(DOMAIN)) {
+  console.error(`Invalid ENGRAM_DOMAIN '${DOMAIN}'. Must be one of: ${VALID_DOMAINS.join(", ")}`);
+  process.exit(1);
+}
+
 // ─── Notion Token ────────────────────────────────────────────────────────────
 
 function getNotionToken(): string {
@@ -254,7 +262,7 @@ async function getExistingNotionPageIds(): Promise<Set<string>> {
       headers: {
         apikey: SUPABASE_KEY,
         Authorization: `Bearer ${SUPABASE_KEY}`,
-        "Accept-Profile": "ob_work",
+        "Accept-Profile": DOMAIN,
       },
     }
   );
@@ -316,8 +324,8 @@ async function insertToEngram(
       Authorization: `Bearer ${SUPABASE_KEY}`,
       "Content-Type": "application/json",
       Prefer: "return=representation",
-      "Accept-Profile": "ob_work",
-      "Content-Profile": "ob_work",
+      "Accept-Profile": DOMAIN,
+      "Content-Profile": DOMAIN,
     },
     body: JSON.stringify({ content, embedding, metadata }),
   });

@@ -22,6 +22,16 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { readFileSync } from "fs";
 import { parse as parseYaml } from "yaml";
+import {
+  type SynapseRule,
+  type Domain,
+  VALID_DOMAINS,
+  isValidDomain,
+  isVisibleAcross as policyIsVisibleAcross,
+  getSynapseDomains as policyGetSynapseDomains,
+  getSynapseRules as policyGetSynapseRules,
+  getNeverCrossTypes as policyGetNeverCrossTypes,
+} from "./lib/policy.ts";
 
 // --- Config ---
 const SUPABASE_URL =
@@ -33,9 +43,6 @@ const SUPABASE_KEY =
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const VOYAGE_KEY = process.env.VOYAGE_API_KEY || "";
 const DEFAULT_DOMAIN = process.env.OB_DEFAULT_DOMAIN || "work";
-
-const VALID_DOMAINS = ["work", "personal", "life", "learning"] as const;
-type Domain = (typeof VALID_DOMAINS)[number];
 
 if (!SUPABASE_KEY) {
   process.stderr.write("SUPABASE_SERVICE_KEY required\n");
@@ -69,8 +76,10 @@ type Ontology = {
     condition: Record<string, unknown>;
     action: { domain: string; sensitivity: string; confidence_boost: number };
   }>;
-  synapse_rules: Record<string, Array<{ domain: string; entity_types: string[]; sensitivity_max: string }>>;
-  never_cross?: string[];
+  // synapse_rules holds two shapes keyed by name:
+  //   "<domain>_can_see": SynapseRule[]
+  //   "never_cross":      string[]   (entity types quarantined to their home domain)
+  synapse_rules: Record<string, SynapseRule[] | string[]>;
 };
 
 let ontology: Ontology;
@@ -99,21 +108,15 @@ function schemaFor(domain: Domain): string {
   return `ob_${domain}`;
 }
 
-function isValidDomain(d: string): d is Domain {
-  return VALID_DOMAINS.includes(d as Domain);
-}
-
-function getSynapseDomains(primaryDomain: Domain): Domain[] {
-  const domains: Domain[] = [primaryDomain];
-  const rules = ontology.synapse_rules?.[`${primaryDomain}_can_see`] || [];
-  for (const rule of rules) {
-    const d = rule.domain as Domain;
-    if (isValidDomain(d) && !domains.includes(d)) {
-      domains.push(d);
-    }
-  }
-  return domains;
-}
+// Bind the pure policy helpers to this server's loaded ontology.
+const getSynapseRules = (d: Domain) => policyGetSynapseRules(ontology, d);
+const getSynapseDomains = (d: Domain) => policyGetSynapseDomains(ontology, d);
+const getNeverCrossTypes = () => policyGetNeverCrossTypes(ontology);
+const isVisibleAcross = (
+  thought: { metadata?: any },
+  homeDomain: Domain,
+  callerDomain: Domain | null
+) => policyIsVisibleAcross(ontology, thought, homeDomain, callerDomain);
 
 // --- Embedding (Voyage voyage-3, 1024d) ---
 async function getEmbedding(text: string): Promise<number[]> {
@@ -406,26 +409,33 @@ server.tool(
     const matchCount = limit ?? 10;
     const matchThreshold = threshold ?? 0.5;
 
+    const neverCrossTypes = getNeverCrossTypes();
+
     if (cross_domain) {
-      // Search all domains
+      // No primary caller; only never_cross quarantines apply.
+      // Over-fetch to absorb post-filter drops, then trim to matchCount.
       const { data, error } = await supabase.rpc("match_thoughts_cross_domain", {
         query_embedding: embedding,
         domains: VALID_DOMAINS.map((d) => `ob_${d}`),
         match_threshold: matchThreshold,
-        match_count: matchCount,
+        match_count: matchCount * 2,
+        never_cross_types: neverCrossTypes,
       });
       if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
-      const results = (data || []).map((t: any) => ({
-        content: t.content.slice(0, 500),
-        metadata: t.metadata,
-        domain: t.domain,
-        similarity: Math.round(t.similarity * 100) / 100,
-        created_at: t.created_at,
-      }));
+      const results = (data || [])
+        .filter((t: any) => isValidDomain(t.domain) && isVisibleAcross(t, t.domain as Domain, null))
+        .slice(0, matchCount)
+        .map((t: any) => ({
+          content: t.content.slice(0, 500),
+          metadata: t.metadata,
+          domain: t.domain,
+          similarity: Math.round(t.similarity * 100) / 100,
+          created_at: t.created_at,
+        }));
       return { content: [{ type: "text" as const, text: JSON.stringify({ results }, null, 2) }] };
     }
 
-    // Domain-scoped search (with synapse)
+    // Domain-scoped search (with synapse).
     const primaryDomain = (isValidDomain(domain || "") ? domain : DEFAULT_DOMAIN) as Domain;
     const searchDomains = getSynapseDomains(primaryDomain);
 
@@ -433,16 +443,22 @@ server.tool(
       query_embedding: embedding,
       domains: searchDomains.map((d) => `ob_${d}`),
       match_threshold: matchThreshold,
-      match_count: matchCount,
+      match_count: matchCount * 2,
+      never_cross_types: neverCrossTypes,
     });
     if (error) return { content: [{ type: "text" as const, text: `Error: ${error.message}` }] };
-    const results = (data || []).map((t: any) => ({
-      content: t.content.slice(0, 500),
-      metadata: t.metadata,
-      domain: t.domain,
-      similarity: Math.round(t.similarity * 100) / 100,
-      created_at: t.created_at,
-    }));
+    const results = (data || [])
+      .filter(
+        (t: any) => isValidDomain(t.domain) && isVisibleAcross(t, t.domain as Domain, primaryDomain)
+      )
+      .slice(0, matchCount)
+      .map((t: any) => ({
+        content: t.content.slice(0, 500),
+        metadata: t.metadata,
+        domain: t.domain,
+        similarity: Math.round(t.similarity * 100) / 100,
+        created_at: t.created_at,
+      }));
     return {
       content: [
         {
@@ -479,9 +495,10 @@ server.tool(
     limit: z.number().optional().describe("Max results (default 20)"),
   },
   async ({ domain, cross_domain, type, topic, person, horizon, days, limit }) => {
-    const targetDomains: Domain[] = cross_domain
-      ? [...VALID_DOMAINS]
-      : [(isValidDomain(domain || "") ? domain : DEFAULT_DOMAIN) as Domain];
+    const primaryDomain = (isValidDomain(domain || "") ? domain : DEFAULT_DOMAIN) as Domain;
+    const targetDomains: Domain[] = cross_domain ? [...VALID_DOMAINS] : [primaryDomain];
+    // null caller in cross_domain mode (never_cross still applies)
+    const callerDomain: Domain | null = cross_domain ? null : primaryDomain;
 
     const allThoughts: any[] = [];
 
@@ -509,6 +526,7 @@ server.tool(
         continue;
       }
       for (const t of data || []) {
+        if (!isVisibleAcross(t, d, callerDomain)) continue;
         allThoughts.push({
           id: t.id,
           content: (t.content as string).slice(0, 300),
@@ -650,9 +668,9 @@ server.tool(
     const since = new Date(Date.now() - windowDays * 86400000).toISOString();
     const maxResults = limit ?? 20;
 
-    const targetDomains: Domain[] = cross_domain
-      ? [...VALID_DOMAINS]
-      : [(isValidDomain(domain || "") ? domain : DEFAULT_DOMAIN) as Domain];
+    const primaryDomain = (isValidDomain(domain || "") ? domain : DEFAULT_DOMAIN) as Domain;
+    const targetDomains: Domain[] = cross_domain ? [...VALID_DOMAINS] : [primaryDomain];
+    const callerDomain: Domain | null = cross_domain ? null : primaryDomain;
 
     const allThoughts: any[] = [];
 
@@ -683,6 +701,7 @@ server.tool(
       const seenIds = new Set<string>();
       const addThought = (t: any, matchType: string) => {
         if (seenIds.has(t.id)) return;
+        if (!isVisibleAcross(t, d, callerDomain)) return;
         seenIds.add(t.id);
         allThoughts.push({
           id: t.id,
@@ -960,7 +979,6 @@ server.tool(
   },
   async ({ entity, connection_type, limit_per_domain }) => {
     const perDomain = limit_per_domain ?? 5;
-    const neverCross = ontology.synapse_rules?.never_cross || [];
     const connections: Record<string, any[]> = {};
 
     let metadataFilter: Record<string, unknown>;
@@ -994,10 +1012,9 @@ server.tool(
     for (const { domain: d, data, error } of results) {
       if (error || !data?.length) continue;
 
-      const filtered = data.filter((t: any) => {
-        const type = t.metadata?.type || "";
-        return !neverCross.includes(type);
-      });
+      // discover_connections is inherently cross-domain (callerDomain = null);
+      // synapse rules don't apply, but never_cross types are still quarantined.
+      const filtered = data.filter((t: any) => isVisibleAcross(t, d, null));
 
       if (filtered.length > 0) {
         connections[d] = filtered.map((t: any) => ({
@@ -1039,7 +1056,11 @@ server.tool(
     const primaryDomain = (isValidDomain(domain || "") ? domain : DEFAULT_DOMAIN) as Domain;
     const schema = schemaFor(primaryDomain);
 
-    // L0: Identity/role thoughts (goals, beliefs, daily briefings)
+    // L0: Identity/role thoughts (goals, beliefs, daily briefings).
+    // Privileged read: wake_up is a user-invoked session-bootstrap path, so it
+    // intentionally pulls life-domain identity context regardless of primary
+    // domain rather than going through synapse rules. None of the L0 types
+    // (goal, belief, daily_briefing) are in never_cross.
     const l0Query = supabase
       .schema("ob_life" as any)
       .from("thoughts")
