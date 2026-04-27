@@ -19,6 +19,7 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { getEmbedding } from "./lib/embeddings.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -47,10 +48,12 @@ try {
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
-const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
-
-if (!SUPABASE_URL || !SUPABASE_KEY || !OPENAI_KEY) {
-  console.error("Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or OPENAI_API_KEY");
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  process.exit(1);
+}
+if (!process.env.VOYAGE_API_KEY && !process.env.OPENAI_API_KEY) {
+  console.error("Missing embedding key: set VOYAGE_API_KEY or OPENAI_API_KEY");
   process.exit(1);
 }
 
@@ -233,23 +236,6 @@ function generateSlug(title: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 60);
-}
-
-// ─── Embedding (1024d, text-embedding-3-small) ──────────────────────────────
-
-async function getEmbedding(text: string): Promise<number[]> {
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "text-embedding-3-small",
-      input: text.slice(0, 8000),
-      dimensions: 1024,
-    }),
-  });
-  const data = await res.json();
-  if (!data.data?.[0]?.embedding) throw new Error(`Embedding failed: ${JSON.stringify(data)}`);
-  return data.data[0].embedding;
 }
 
 // ─── Deduplication ──────────────────────────────────────────────────────────

@@ -32,6 +32,7 @@ import {
   getSynapseRules as policyGetSynapseRules,
   getNeverCrossTypes as policyGetNeverCrossTypes,
 } from "./lib/policy.ts";
+import { getEmbedding } from "./lib/embeddings.ts";
 
 // --- Config ---
 const SUPABASE_URL =
@@ -41,7 +42,6 @@ const SUPABASE_KEY =
   process.env.SUPABASE_SERVICE_KEY ||
   "";
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
-const VOYAGE_KEY = process.env.VOYAGE_API_KEY || "";
 const DEFAULT_DOMAIN = process.env.OB_DEFAULT_DOMAIN || "work";
 
 if (!SUPABASE_KEY) {
@@ -117,36 +117,6 @@ const isVisibleAcross = (
   homeDomain: Domain,
   callerDomain: Domain | null
 ) => policyIsVisibleAcross(ontology, thought, homeDomain, callerDomain);
-
-// --- Embedding (Voyage voyage-3, 1024d) ---
-async function getEmbedding(text: string): Promise<number[]> {
-  if (VOYAGE_KEY) {
-    const res = await fetch("https://api.voyageai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${VOYAGE_KEY}`,
-      },
-      body: JSON.stringify({ model: "voyage-3", input: text.slice(0, 16000) }),
-    });
-    const data = (await res.json()) as any;
-    return data?.data?.[0]?.embedding || [];
-  }
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "text-embedding-3-small",
-      input: text.slice(0, 8000),
-      dimensions: 1024,
-    }),
-  });
-  const data = (await res.json()) as any;
-  return data.data[0].embedding;
-}
 
 // --- Metadata + Domain Classification ---
 async function classifyAndExtract(

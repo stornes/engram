@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join, relative } from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { getEmbedding } from "./lib/embeddings.ts";
 
 // --- Config ---
 
@@ -57,10 +58,12 @@ try {
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
-const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
-
-if (!SUPABASE_KEY || !OPENAI_KEY) {
-  console.error("Missing SUPABASE_SERVICE_ROLE_KEY or OPENAI_API_KEY");
+if (!SUPABASE_KEY) {
+  console.error("Missing SUPABASE_SERVICE_ROLE_KEY");
+  process.exit(1);
+}
+if (!process.env.VOYAGE_API_KEY && !process.env.OPENAI_API_KEY) {
+  console.error("Missing embedding key: set VOYAGE_API_KEY or OPENAI_API_KEY");
   process.exit(1);
 }
 
@@ -156,19 +159,6 @@ function isBackupTarget(filePath: string): boolean {
   if (filePath.match(/^hooks\/.*\.ts$/)) return true;
 
   return false;
-}
-
-// --- OpenAI ---
-
-async function getEmbedding(text: string): Promise<number[]> {
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "text-embedding-3-small", input: text.slice(0, 8000) }),
-  });
-  const data = await res.json();
-  if (!data.data?.[0]?.embedding) throw new Error(`Embedding failed: ${JSON.stringify(data)}`);
-  return data.data[0].embedding;
 }
 
 // --- Capture ---

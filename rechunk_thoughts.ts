@@ -16,6 +16,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { createClient } from "@supabase/supabase-js";
+import { getEmbedding } from "./lib/embeddings.ts";
 
 // --- Load env ---
 const envPath = join(process.env.HOME!, ".claude", "engram", ".env");
@@ -46,7 +47,6 @@ try {
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
-const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const MAX_CHUNK_CHARS = 1500; // ~375 tokens, optimal for semantic search
 const CHUNK_OVERLAP = 150; // overlap for context continuity
 const OVERSIZE_THRESHOLD = 5000; // chars; rows above this get rechunked
@@ -55,8 +55,8 @@ if (!SUPABASE_KEY) {
   console.error("ERROR: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_KEY required");
   process.exit(1);
 }
-if (!OPENAI_KEY) {
-  console.error("ERROR: OPENAI_API_KEY required");
+if (!process.env.VOYAGE_API_KEY && !process.env.OPENAI_API_KEY) {
+  console.error("ERROR: VOYAGE_API_KEY or OPENAI_API_KEY required");
   process.exit(1);
 }
 
@@ -66,34 +66,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const DRY_RUN = process.argv.includes("--dry-run");
 const limitIdx = process.argv.indexOf("--limit");
 const LIMIT = limitIdx !== -1 ? parseInt(process.argv[limitIdx + 1], 10) : 0;
-
-// --- Embedding ---
-async function getEmbedding(text: string): Promise<number[]> {
-  const voyageKey = process.env.VOYAGE_API_KEY || "";
-  if (voyageKey) {
-    const res = await fetch("https://api.voyageai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${voyageKey}`,
-      },
-      body: JSON.stringify({ model: "voyage-3", input: text.slice(0, 16000) }),
-    });
-    const data = await res.json();
-    return (data as any)?.data?.[0]?.embedding || [];
-  }
-  // Fallback to OpenAI
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ model: "text-embedding-3-small", input: text.slice(0, 8000) }),
-  });
-  const data = await res.json();
-  return data?.data?.[0]?.embedding || [];
-}
 
 // --- Chunking ---
 function chunkContent(content: string): string[] {
