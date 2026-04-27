@@ -59,7 +59,16 @@ Four sensitivity levels: public, internal, confidential, secret. Financial recor
 ### 1. Supabase
 
 1. Create a [Supabase](https://supabase.com) project
-2. Run `migrations/001_create_domain_schemas.sql` in the SQL Editor (Dashboard > SQL Editor)
+2. Apply the SQL migrations. From this repo, with `DATABASE_URL` set to your project's postgres connection string (Project Settings → Database → Connection string → URI):
+
+   ```bash
+   bun run apply-migrations.ts            # apply all pending
+   bun run apply-migrations.ts --status   # show applied vs pending
+   bun run apply-migrations.ts --dry-run  # plan without applying
+   ```
+
+   The script tracks applied migrations in `public.engram_migrations` and refuses to run if a previously-applied migration's content has drifted on disk. You can still run files manually in the Supabase SQL Editor if you prefer.
+
 3. In Settings > API > Exposed schemas, add: `ob_work`, `ob_personal`, `ob_life`, `ob_learning`
 
 ### 2. Environment
