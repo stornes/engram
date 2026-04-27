@@ -30,8 +30,8 @@ const SCRIPT_DIR = join(PAI_ROOT, "engram");
 const STATE_DIR = join(SCRIPT_DIR, "state");
 const STATE_FILE = join(STATE_DIR, "email-sync-state.json");
 
-const ACCOUNT = "Exchange";
-const LOOKBACK_DAYS = 7;
+const ACCOUNT = process.env.MAIL_ACCOUNT || "Exchange";
+const LOOKBACK_DAYS = parseInt(process.env.MAIL_LOOKBACK_DAYS || "7", 10);
 const BATCH_LIMIT = 30;
 const MAX_BODY_CHARS = 2000;
 const MAX_SYNCED_IDS = 2000;
@@ -51,7 +51,6 @@ const DENYLIST_SUBJECT_PREFIXES = [
   "Declined:",
   "Canceled:",
   "Tentative:",
-  "HAL:",
 ];
 
 const DENYLIST_SUBJECT_CONTAINS = [
@@ -62,7 +61,11 @@ const DENYLIST_SUBJECT_CONTAINS = [
 ];
 
 // Self-addressed emails to skip (your AI sends to you)
-const SELF_EMAIL = "your-email@example.com";
+const SELF_EMAIL = process.env.SELF_EMAIL || "";
+if (!SELF_EMAIL) {
+  console.error("SELF_EMAIL required (your email address, used to filter self-sent messages)");
+  process.exit(1);
+}
 
 // Load env
 const envPath = join(SCRIPT_DIR, ".env");
