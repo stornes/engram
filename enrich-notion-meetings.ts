@@ -17,6 +17,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { loadEnvFile } from "./lib/env.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -42,18 +43,7 @@ const NAME_MAP: Record<string, string> = {
 
 // ─── Env loading ─────────────────────────────────────────────────────────────
 
-const envPath = `${process.env.HOME}/.claude/engram/.env`;
-try {
-  const envContent = readFileSync(envPath, "utf-8");
-  for (const line of envContent.split("\n")) {
-    const match = line.match(/^([^#=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      const val = match[2].trim();
-      if (!process.env[key]) process.env[key] = val;
-    }
-  }
-} catch {}
+loadEnvFile(`${process.env.HOME}/.claude/engram/.env`);
 
 // ─── Notion Token ────────────────────────────────────────────────────────────
 

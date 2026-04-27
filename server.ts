@@ -18,7 +18,6 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { readFileSync } from "fs";
 import { parse as parseYaml } from "yaml";
@@ -33,23 +32,13 @@ import {
   getNeverCrossTypes as policyGetNeverCrossTypes,
 } from "./lib/policy.ts";
 import { getEmbedding } from "./lib/embeddings.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
 // --- Config ---
-const SUPABASE_URL =
-  process.env.SUPABASE_URL || "";
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_KEY ||
-  "";
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const DEFAULT_DOMAIN = process.env.OB_DEFAULT_DOMAIN || "work";
 
-if (!SUPABASE_KEY) {
-  process.stderr.write("SUPABASE_SERVICE_KEY required\n");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createSupabaseClient();
 
 // --- Ontology ---
 const VALID_HORIZONS = ["daily", "weekly", "monthly", "quarterly"] as const;

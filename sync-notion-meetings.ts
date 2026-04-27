@@ -20,6 +20,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { getEmbedding } from "./lib/embeddings.ts";
+import { loadEnvFile } from "./lib/env.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -33,18 +34,7 @@ const TEST_PAGE_ID = "YOUR_TEST_PAGE_ID";
 
 // ─── Env loading ─────────────────────────────────────────────────────────────
 
-const envPath = `${process.env.HOME}/.claude/engram/.env`;
-try {
-  const envContent = readFileSync(envPath, "utf-8");
-  for (const line of envContent.split("\n")) {
-    const match = line.match(/^([^#=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      const val = match[2].trim();
-      if (!process.env[key]) process.env[key] = val;
-    }
-  }
-} catch {}
+loadEnvFile(`${process.env.HOME}/.claude/engram/.env`);
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";

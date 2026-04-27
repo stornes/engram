@@ -6,33 +6,23 @@
  * Processes rows where embedding IS NULL in batches.
  */
 
-import { readFileSync } from "fs";
 import { join } from "path";
-import { createClient } from "@supabase/supabase-js";
+import { loadEnvFiles } from "./lib/env.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
-// Load env
-for (const envPath of [
+loadEnvFiles([
   join(process.env.HOME!, ".claude", "engram", ".env"),
   join(process.env.HOME!, ".claude", ".env"),
-]) {
-  try {
-    for (const line of readFileSync(envPath, "utf-8").split("\n")) {
-      const m = line.match(/^([^#=]+)=(.*)$/);
-      if (m && !process.env[m[1].trim()]) process.env[m[1].trim()] = m[2].trim();
-    }
-  } catch {}
-}
+]);
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
 const VOYAGE_KEY = process.env.VOYAGE_API_KEY || "";
 
-if (!SUPABASE_KEY || !VOYAGE_KEY) {
-  console.error("Need SUPABASE_SERVICE_ROLE_KEY and VOYAGE_API_KEY");
+if (!VOYAGE_KEY) {
+  console.error("Need VOYAGE_API_KEY (this script uses Voyage batching directly)");
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createSupabaseClient();
 const BATCH_SIZE = 8; // Voyage allows batching
 
 async function getEmbeddings(texts: string[]): Promise<number[][]> {

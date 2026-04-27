@@ -13,54 +13,26 @@
  *   bun rechunk_thoughts.ts                 # Full run
  */
 
-import { readFileSync } from "fs";
 import { join } from "path";
-import { createClient } from "@supabase/supabase-js";
 import { getEmbedding } from "./lib/embeddings.ts";
+import { loadEnvFiles } from "./lib/env.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
-// --- Load env ---
-const envPath = join(process.env.HOME!, ".claude", "engram", ".env");
-try {
-  const content = readFileSync(envPath, "utf-8");
-  for (const line of content.split("\n")) {
-    const match = line.match(/^([^#=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      const val = match[2].trim();
-      if (!process.env[key]) process.env[key] = val;
-    }
-  }
-} catch {}
+loadEnvFiles([
+  join(process.env.HOME!, ".claude", "engram", ".env"),
+  join(process.env.HOME!, ".claude", ".env"),
+]);
 
-// Also load from ~/.claude/.env
-try {
-  const content = readFileSync(join(process.env.HOME!, ".claude", ".env"), "utf-8");
-  for (const line of content.split("\n")) {
-    const match = line.match(/^([^#=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      const val = match[2].trim();
-      if (!process.env[key]) process.env[key] = val;
-    }
-  }
-} catch {}
-
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
 const MAX_CHUNK_CHARS = 1500; // ~375 tokens, optimal for semantic search
 const CHUNK_OVERLAP = 150; // overlap for context continuity
 const OVERSIZE_THRESHOLD = 5000; // chars; rows above this get rechunked
 
-if (!SUPABASE_KEY) {
-  console.error("ERROR: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_KEY required");
-  process.exit(1);
-}
 if (!process.env.VOYAGE_API_KEY && !process.env.OPENAI_API_KEY) {
   console.error("ERROR: VOYAGE_API_KEY or OPENAI_API_KEY required");
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createSupabaseClient();
 
 // --- CLI args ---
 const DRY_RUN = process.argv.includes("--dry-run");

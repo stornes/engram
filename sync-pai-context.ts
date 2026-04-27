@@ -14,8 +14,9 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join, relative } from "node:path";
-import { createClient } from "@supabase/supabase-js";
 import { getEmbedding } from "./lib/embeddings.ts";
+import { loadEnvFile } from "./lib/env.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
 // --- Config ---
 
@@ -42,26 +43,8 @@ const TEXT_EXTENSIONS = new Set([
 // Max file size to capture (skip huge files)
 const MAX_FILE_SIZE = 100_000; // 100KB
 
-// Load env
-const envPath = join(CONTEXT_ROOT, "engram/.env");
-try {
-  const envContent = readFileSync(envPath, "utf-8");
-  for (const line of envContent.split("\n")) {
-    const match = line.match(/^([^#=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      const val = match[2].trim();
-      if (!process.env[key]) process.env[key] = val;
-    }
-  }
-} catch {}
+loadEnvFile(join(CONTEXT_ROOT, "engram/.env"));
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
-if (!SUPABASE_KEY) {
-  console.error("Missing SUPABASE_SERVICE_ROLE_KEY");
-  process.exit(1);
-}
 if (!process.env.VOYAGE_API_KEY && !process.env.OPENAI_API_KEY) {
   console.error("Missing embedding key: set VOYAGE_API_KEY or OPENAI_API_KEY");
   process.exit(1);
@@ -75,7 +58,7 @@ if (!VALID_DOMAINS.includes(DOMAIN)) {
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createSupabaseClient();
 
 // --- State ---
 
