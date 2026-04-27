@@ -11,10 +11,11 @@
  * Optional env: SLACK_CHANNELS (comma-separated channel IDs, defaults to configured list)
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createClient } from "@supabase/supabase-js";
 import { getEmbedding } from "./lib/embeddings.ts";
+import { loadEnvFile } from "./lib/env.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
 // --- Config ---
 
@@ -29,26 +30,11 @@ const DEFAULT_CHANNELS = [
   "YOUR_CHANNEL_ID", // #your-channel
 ];
 
-// Load env
-const envPath = join(SCRIPT_DIR, ".env");
-try {
-  const envContent = readFileSync(envPath, "utf-8");
-  for (const line of envContent.split("\n")) {
-    const match = line.match(/^([^#=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      const val = match[2].trim();
-      if (!process.env[key]) process.env[key] = val;
-    }
-  }
-} catch {}
+loadEnvFile(join(SCRIPT_DIR, ".env"));
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const SLACK_TOKEN = process.env.SLACK_BOT_TOKEN || "";
-
-if (!SUPABASE_KEY || !SLACK_TOKEN) {
-  console.error("Missing SUPABASE_SERVICE_ROLE_KEY or SLACK_BOT_TOKEN");
+if (!SLACK_TOKEN) {
+  console.error("Missing SLACK_BOT_TOKEN");
   process.exit(1);
 }
 if (!process.env.VOYAGE_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -64,7 +50,7 @@ if (!VALID_DOMAINS.includes(DOMAIN)) {
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createSupabaseClient();
 
 const CHANNELS = process.env.SLACK_CHANNELS
   ? process.env.SLACK_CHANNELS.split(",").map(s => s.trim())

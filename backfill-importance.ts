@@ -9,32 +9,14 @@
  * Usage: bun run backfill-importance.ts [--dry-run]
  */
 
-import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
+import { loadEnvFile } from "./lib/env.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 
-// Load env
-const envPath = new URL("./.env", import.meta.url).pathname;
-try {
-  const envContent = readFileSync(envPath, "utf-8");
-  for (const line of envContent.split("\n")) {
-    const match = line.match(/^([^#=]+)=(.+)$/);
-    if (match) {
-      if (!process.env[match[1].trim()]) process.env[match[1].trim()] = match[2].trim();
-    }
-  }
-} catch {}
+loadEnvFile(new URL("./.env", import.meta.url).pathname);
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-if (!SUPABASE_KEY) {
-  console.error("SUPABASE_SERVICE_ROLE_KEY required");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createSupabaseClient();
 
 // Importance scoring (mirrors server.ts)
 const TYPE_WEIGHTS: Record<string, number> = {

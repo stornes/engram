@@ -13,14 +13,11 @@
  *   --dir PATH    Override memory directory (default: ~/.claude/MEMORY)
  */
 
-import { createClient } from "@supabase/supabase-js";
 import { readdir, readFile, stat } from "fs/promises";
 import { join, relative, extname, basename } from "path";
 import { getEmbedding } from "./lib/embeddings.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
-const SUPABASE_URL =
-  process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const MEMORY_DIR = process.argv.includes("--dir")
   ? process.argv[process.argv.indexOf("--dir") + 1]
@@ -30,16 +27,12 @@ const LIMIT = process.argv.includes("--limit")
   ? parseInt(process.argv[process.argv.indexOf("--limit") + 1])
   : Infinity;
 
-if (!SUPABASE_KEY && !DRY_RUN) {
-  console.error("Error: SUPABASE_SERVICE_ROLE_KEY required (unless --dry-run)");
-  process.exit(1);
-}
 if (!OPENAI_KEY && !DRY_RUN) {
   console.error("Error: OPENAI_API_KEY required (unless --dry-run)");
   process.exit(1);
 }
 
-const supabase = DRY_RUN ? null : createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = DRY_RUN ? null : createSupabaseClient();
 
 // --- Collect all markdown and JSONL files ---
 async function collectFiles(dir: string): Promise<string[]> {

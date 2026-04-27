@@ -12,8 +12,9 @@
 
 import { readFileSync, writeFileSync, mkdirSync, statSync, readdirSync } from "node:fs";
 import { join, basename } from "node:path";
-import { createClient } from "@supabase/supabase-js";
 import { getEmbedding } from "./lib/embeddings.ts";
+import { loadEnvFile } from "./lib/env.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
 // --- Config ---
 
@@ -25,26 +26,8 @@ const BATCH_LIMIT = 20; // max sessions per run
 const LOOKBACK_HOURS = 26; // slightly more than 24h
 const SUMMARY_CHARS = 2000; // chars from start + end of extracted messages
 
-// Load env
-const envPath = join(SCRIPT_DIR, ".env");
-try {
-  const envContent = readFileSync(envPath, "utf-8");
-  for (const line of envContent.split("\n")) {
-    const match = line.match(/^([^#=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      const val = match[2].trim();
-      if (!process.env[key]) process.env[key] = val;
-    }
-  }
-} catch {}
+loadEnvFile(join(SCRIPT_DIR, ".env"));
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-if (!SUPABASE_KEY) {
-  console.error("Missing SUPABASE_SERVICE_ROLE_KEY");
-  process.exit(1);
-}
 if (!process.env.VOYAGE_API_KEY && !process.env.OPENAI_API_KEY) {
   console.error("Missing embedding key: set VOYAGE_API_KEY or OPENAI_API_KEY");
   process.exit(1);
@@ -58,7 +41,7 @@ if (!VALID_DOMAINS.includes(DOMAIN)) {
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createSupabaseClient();
 
 // --- State ---
 

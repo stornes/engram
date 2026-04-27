@@ -9,30 +9,16 @@
  * Usage: bun run backfill-horizons.ts [--dry-run]
  */
 
-import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "fs";
 import { parse as parseYaml } from "yaml";
+import { loadEnvFile } from "./lib/env.ts";
+import { createSupabaseClient } from "./lib/supabase.ts";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 
-// Load env
-const envPath = new URL("./.env", import.meta.url).pathname;
-const envContent = readFileSync(envPath, "utf-8");
-for (const line of envContent.split("\n")) {
-  const match = line.match(/^([^#=]+)=(.+)$/);
-  if (match) process.env[match[1].trim()] = match[2].trim();
-}
+loadEnvFile(new URL("./.env", import.meta.url).pathname);
 
-const SUPABASE_URL =
-  process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-if (!SUPABASE_KEY) {
-  console.error("SUPABASE_SERVICE_ROLE_KEY required");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createSupabaseClient();
 
 // Load ontology for type -> horizon mapping
 const ontologyPath = new URL("./ontology/v1.1.0.yaml", import.meta.url).pathname;
