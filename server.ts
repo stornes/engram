@@ -19,10 +19,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync } from "fs";
-import { parse as parseYaml } from "yaml";
 import {
-  type SynapseRule,
   type Domain,
   VALID_DOMAINS,
   isValidDomain,
@@ -33,6 +30,7 @@ import {
 } from "./lib/policy.ts";
 import { getEmbedding } from "./lib/embeddings.ts";
 import { createSupabaseClient } from "./lib/supabase.ts";
+import { type Ontology, loadOntology } from "./lib/ontology.ts";
 
 // --- Config ---
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
@@ -55,41 +53,11 @@ const HORIZON_WINDOWS: Record<Horizon, number> = {
   quarterly: 90,
 };
 
-type Ontology = {
-  version: string;
-  domains: Record<string, { schema: string; default_sensitivity: string }>;
-  horizons?: Record<string, { description: string; window_days: number; entity_defaults: string[] }>;
-  entity_types: Record<string, { domain_default: string; sensitivity: string; default_horizon?: string }>;
-  inference_rules: Array<{
-    name: string;
-    condition: Record<string, unknown>;
-    action: { domain: string; sensitivity: string; confidence_boost: number };
-  }>;
-  // synapse_rules holds two shapes keyed by name:
-  //   "<domain>_can_see": SynapseRule[]
-  //   "never_cross":      string[]   (entity types quarantined to their home domain)
-  synapse_rules: Record<string, SynapseRule[] | string[]>;
-};
-
-let ontology: Ontology;
-try {
-  const ontologyPath = new URL("./ontology/v1.1.0.yaml", import.meta.url).pathname;
-  ontology = parseYaml(readFileSync(ontologyPath, "utf-8")) as Ontology;
+const ontology: Ontology = loadOntology(undefined, () =>
+  process.stderr.write("[OB] Warning: could not load ontology, using defaults\n")
+);
+if (ontology.version !== "0.0.0") {
   process.stderr.write(`[OB] Ontology v${ontology.version} loaded\n`);
-} catch (e) {
-  process.stderr.write(`[OB] Warning: could not load ontology, using defaults\n`);
-  ontology = {
-    version: "0.0.0",
-    domains: {
-      work: { schema: "ob_work", default_sensitivity: "internal" },
-      personal: { schema: "ob_personal", default_sensitivity: "confidential" },
-      life: { schema: "ob_life", default_sensitivity: "confidential" },
-      learning: { schema: "ob_learning", default_sensitivity: "public" },
-    },
-    entity_types: {},
-    inference_rules: [],
-    synapse_rules: {},
-  };
 }
 
 // --- Helpers ---

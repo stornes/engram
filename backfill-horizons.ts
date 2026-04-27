@@ -9,10 +9,9 @@
  * Usage: bun run backfill-horizons.ts [--dry-run]
  */
 
-import { readFileSync } from "fs";
-import { parse as parseYaml } from "yaml";
 import { loadEnvFile } from "./lib/env.ts";
 import { createSupabaseClient } from "./lib/supabase.ts";
+import { loadOntology } from "./lib/ontology.ts";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 
@@ -20,9 +19,7 @@ loadEnvFile(new URL("./.env", import.meta.url).pathname);
 
 const supabase = createSupabaseClient();
 
-// Load ontology for type -> horizon mapping
-const ontologyPath = new URL("./ontology/v1.1.0.yaml", import.meta.url).pathname;
-const ontology = parseYaml(readFileSync(ontologyPath, "utf-8"));
+const ontology = loadOntology();
 
 const typeToHorizon: Record<string, string> = {};
 for (const [typeName, def] of Object.entries(ontology.entity_types || {})) {
