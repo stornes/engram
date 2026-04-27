@@ -35,7 +35,7 @@ if (!SUPABASE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Load ontology for type -> horizon mapping
-const ontologyPath = new URL("./ontology/v1.0.0.yaml", import.meta.url).pathname;
+const ontologyPath = new URL("./ontology/v1.1.0.yaml", import.meta.url).pathname;
 const ontology = parseYaml(readFileSync(ontologyPath, "utf-8"));
 
 const typeToHorizon: Record<string, string> = {};

@@ -47,6 +47,14 @@ if (!SUPABASE_KEY || !OPENAI_KEY) {
   process.exit(1);
 }
 
+const VALID_DOMAINS = ["ob_work", "ob_personal", "ob_life", "ob_learning"] as const;
+type Domain = (typeof VALID_DOMAINS)[number];
+const DOMAIN: Domain = (process.env.ENGRAM_DOMAIN as Domain) || "ob_learning";
+if (!VALID_DOMAINS.includes(DOMAIN)) {
+  console.error(`Invalid ENGRAM_DOMAIN '${DOMAIN}'. Must be one of: ${VALID_DOMAINS.join(", ")}`);
+  process.exit(1);
+}
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // --- State ---
@@ -282,13 +290,13 @@ async function main() {
 
       // Upsert: delete previous version of this session
       await supabase
-        .schema("ob_learning" as any)
+        .schema(DOMAIN as any)
         .from("thoughts")
         .delete()
         .eq("metadata->>session_id", sessionId)
         .eq("metadata->>source", "session-sync");
 
-      const { error } = await supabase.schema("ob_learning" as any).from("thoughts").insert({
+      const { error } = await supabase.schema(DOMAIN as any).from("thoughts").insert({
         content: summary,
         embedding,
         metadata: {
